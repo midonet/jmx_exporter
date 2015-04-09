@@ -20,6 +20,10 @@ import javax.management.remote.JMXConnector;
 import javax.management.remote.JMXConnectorFactory;
 import javax.management.remote.JMXServiceURL;
 
+import javax.management.JMX;
+import org.midonet.odp.flows.FlowStats;
+import org.midonet.midolman.management.MeteringMXBean;
+
 public class JmxScraper {
     private static final Logger logger = Logger.getLogger(JmxScraper.class.getName());; 
 
@@ -48,23 +52,34 @@ public class JmxScraper {
       * Values are passed to the receiver in a single thread.
       */
     public void doScrape() throws Exception {
+        if (hostPort.isEmpty()) {
+            scrapeHostPort(hostPort);
+        } else {
+            String[] hostPorts = hostPort.split(",");
+            for (String hp : hostPorts)
+                scrapeHostPort(hp);
+        }
+    }
+
+    private void scrapeHostPort(String hostPort) throws Exception {
         MBeanServerConnection beanConn;
         JMXConnector jmxc = null;
-        if (hostPort.isEmpty()) {
-          beanConn = ManagementFactory.getPlatformMBeanServer();
-        } else {
-          String url = "service:jmx:rmi:///jndi/rmi://" + hostPort + "/jmxrmi";
-          jmxc = JMXConnectorFactory.connect(new JMXServiceURL(url), null);
-          beanConn = jmxc.getMBeanServerConnection();
-        }
         try {
+            if (hostPort.isEmpty()) {
+                beanConn = ManagementFactory.getPlatformMBeanServer();
+            } else {
+                String url = "service:jmx:rmi:///jndi/rmi://" + hostPort + "/jmxrmi";
+                jmxc = JMXConnectorFactory.connect(new JMXServiceURL(url), null);
+                beanConn = jmxc.getMBeanServerConnection();
+            }
             // Query MBean names
             Set<ObjectName> mBeanNames =
                 new TreeSet<ObjectName>(beanConn.queryNames(null, null));
-
             for (ObjectName name : mBeanNames) {
-                scrapeBean(beanConn, name);
+                scrapeBean(beanConn, name, hostPort);
             }
+        } catch (Exception e) {
+            logger.log(Level.WARNING, "Caught while scraping " + hostPort, e);
         } finally {
           if (jmxc != null) {
             jmxc.close();
@@ -72,9 +87,47 @@ public class JmxScraper {
         }
     }
 
-    private void scrapeBean(MBeanServerConnection beanConn, ObjectName mbeanName) throws Exception {
+    private String intToString(int addr) {
+            return String.format("%d.%d.%d.%d", (addr >> 24) & 0xff,
+                                  (addr >> 16) & 0xff,
+                                  (addr >> 8) & 0xff,
+                                  (addr >> 0) & 0xff);
+    }
+
+    private void scrapeBean(MBeanServerConnection beanConn, ObjectName mbeanName, String hostPort) throws Exception {
         MBeanInfo info = beanConn.getMBeanInfo(mbeanName);
         MBeanAttributeInfo[] attrInfos = info.getAttributes();
+
+        if(mbeanName.toString().equals(MeteringMXBean.NAME)) {
+            MeteringMXBean proxy = JMX.newMXBeanProxy(beanConn, mbeanName, MeteringMXBean.class);
+            String[] meters = proxy.listMeters();
+            for (int i=0; i<meters.length; i++) {
+                FlowStats fs = proxy.getMeter(meters[i]);
+                // Use LinkedHashMap to guarantee ordering of keys
+                LinkedHashMap<String, String> keys = new LinkedHashMap<String, String>();
+                keys.put("hostPort", hostPort);
+                String[] tokens = meters[i].split(":");
+                if (!tokens[0].equals("meters")) continue;
+                // The meter follows one of these patterns:
+                // 1) meters:device:<uuid>
+                // 2) meters:port:<tx/rx>:<uuid>
+                // 3) meters:tunnel:<intIpSrc>:<intIpDst>
+                // 4) meters:user.... TODO
+                // In #3 we want to convert the integer IP addresses to Strings.
+                String meter = meters[i];
+                if (tokens[1].equals("tunnel")) {
+                    String src = intToString(Integer.parseInt(tokens[2]));
+                    String dst = intToString(Integer.parseInt(tokens[3]));
+                    meter = "meters:tunnel:" + src + ":" + dst;
+                }
+                keys.put("type", "pkts");
+                processBeanValue(meter, keys, new LinkedList<String>(),
+                                 "Value", "Type", "Description", fs.getPackets());
+                keys.put("type", "bytes");
+                processBeanValue(meter, keys, new LinkedList<String>(),
+                                 "Value", "Type", "Description", fs.getBytes());
+            }
+        }
 
         for (int idx = 0; idx < attrInfos.length; ++idx) {
             MBeanAttributeInfo attr = attrInfos[idx];

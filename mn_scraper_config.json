@@ -1,0 +1,17 @@
+{
+    "hostPort": "119.15.127.100:7200,119.15.127.101:7200",
+    "rules": [
+      {"pattern": "^meters:device:([0-9a-f-]+)<hostPort=(.+), type=(\w+)><>Value:",
+       "name": "mndev_$3",
+       "labels": {"mn_id":"$1", "mn_agent":"$2"},
+       "type": "COUNTER"},
+      {"pattern": "^meters:port:(\w+):([0-9a-f-]+)<hostPort=(.+), type=(\w+)><>Value:",
+       "name": "mnport_$1_$4",
+       "labels": {"mn_id":"$2", "mn_agent":"$3"},
+       "type": "COUNTER"},
+      {"pattern": "^meters:tunnel:([0-9\.]+):([0-9\.]+)<hostPort=(.+), type=(\w+)><>Value:",
+       "name": "mntun_$4",
+       "labels": {"src":"$1", "dst":"$2", "mn_agent":"$3"},
+       "type": "COUNTER"},
+    ]
+}

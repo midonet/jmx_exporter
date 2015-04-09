@@ -16,4 +16,24 @@
     <module>jmx_prometheus_httpserver</module>
     <module>jmx_prometheus_javaagent</module>
   </modules>
+
+  <!--dependencyManagement-->
+  <dependencies>
+    <dependency>
+      <groupId>org.midonet</groupId>
+      <artifactId>odp</artifactId>
+      <version>2015.01</version>
+      <scope>system</scope>
+      <systemPath>${basedir}/odp-2015.01.jar</systemPath>
+    </dependency>
+    <dependency>
+      <groupId>org.midonet</groupId>
+      <artifactId>midolman</artifactId>
+      <version>2015.01</version>
+      <scope>system</scope>
+      <systemPath>${basedir}/midolman-2015.01.jar</systemPath>
+    </dependency>
+  </dependencies>
+  <!--/dependencyManagement-->
+
 </project>
